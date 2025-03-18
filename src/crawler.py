@@ -70,7 +70,8 @@ class Crawler(AsyncHTTPClientMixin):
 
                             html_content = await response.text()
                             await self.extract_url_links(url, html_content)
-                            await self.asynchronous_write_to_file(url, html_content)
+                            text = await self.extract_text_from_html(html_content)
+                            await self.asynchronous_write_to_file(url, text)
 
                             async with self.lock:
                                 self.processed_count += 1
@@ -120,6 +121,11 @@ class Crawler(AsyncHTTPClientMixin):
             await self.filter.add_url(links)
             logger.debug(f"Discovered {len(links)} links from {url}")
 
+    async def extract_text_from_html(self, html_content: str) -> str:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        for tag in soup(['script', 'style', 'meta', 'link']):
+            tag.extract()
+        return ' '.join(soup.stripped_strings)
 
     async def asynchronous_write_to_file(self, url: str, data: str):
         try:
