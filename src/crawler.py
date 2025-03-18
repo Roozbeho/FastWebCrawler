@@ -42,19 +42,16 @@ class Crawler(AsyncHTTPClientMixin):
 
     async def custom_create_task(self) -> List[asyncio.Task]:
         tasks = []
-        maximum_number_of_connection = min(self.max_connection, self.remaining_crawls)
 
-        for _ in range(maximum_number_of_connection):
-            try:
-                async for url in self.filter:
-                    if self.remaining_crawls <= 0:
-                        break
-                    tasks.append(asyncio.create_task(self.fetch_urls_and_urldata(url)))
-                    async with self.lock:
-                        self.remaining_crawls -= 1
-                    logger.debug(f"Task created for {url}, remaining: {self.remaining_crawls}")
-                    break
-            except StopAsyncIteration:
+        async for url in self.filter:
+            if self.remaining_crawls <= 0:
+                break
+            tasks.append(asyncio.create_task(self.fetch_urls_and_urldata(url)))
+            async with self.lock:
+                self.remaining_crawls -= 1
+            logger.debug(f"Task created for {url}, remaining: {self.remaining_crawls}")
+
+            if len(tasks) >= self.max_connection:
                 break
 
         return tasks
@@ -86,13 +83,13 @@ class Crawler(AsyncHTTPClientMixin):
                     )
                     if attempt == self.retries - 1:
                         logger.error(f"Failed to fetch {url} after {self.retries} attempts")
-                        break
+                        return
                 except ClientError as e:
                     logger.error(f"Network error while fetching {url}: {e}")
-                    break
+                    return
                 except Exception as e:
                     logger.error(f"Unexpected error while fetching {url} : {e}")
-                    break
+                    return
 
     async def fetch_all(self):
         while self.remaining_crawls > 0 and self.filter.has_pending():
@@ -104,16 +101,12 @@ class Crawler(AsyncHTTPClientMixin):
                 break
 
             logger.info(f"Created {len(tasks)} tasks. Waiting for completion...")
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            done, pending = await asyncio.wait(tasks)
-
-            logger.info(f"Tasks completed: {len(done)}, Pending: {len(pending)}")
-
-            if pending:
-                logger.warning(f"{len(pending)} tasks are still pending. Canceling them.")
-                for task in pending:
-                    task.cancel()
-
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Task Error: {result}")
+            
         if not self.filter.has_pending() and self.remaining_crawls > 0:
             logger.error("No more links discovered but remaining crawls are not zero!")
 
@@ -126,6 +119,7 @@ class Crawler(AsyncHTTPClientMixin):
         if links:
             await self.filter.add_url(links)
             logger.debug(f"Discovered {len(links)} links from {url}")
+
 
     async def asynchronous_write_to_file(self, url: str, data: str):
         try:
