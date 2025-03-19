@@ -23,7 +23,7 @@ class AsyncHTTPClientMixin:
     def client(self) -> aiohttp.ClientSession:
         if not self.session or self.session.closed:
             logger.warning("Client session not created")
-            return RuntimeError("Client session not created")
+            raise RuntimeError("Client session not created")
         return self.session
 
     async def __aenter__(self):
